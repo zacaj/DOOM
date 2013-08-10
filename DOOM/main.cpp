@@ -7,9 +7,12 @@
 #include <emscripten.h>
 #include <SDL/SDL_image.h>
 #else
-#define IMG_Load SDL_LoadBMP
+#define IMG_Load(s) SDL_DisplayFormat(SDL_LoadBMP(s))
+#ifndef GCC
 #define freopen freopen_s
 #define fscanf fscanf_s
+
+#endif
 #endif
 #include <assert.h>
 #include <string>
@@ -374,7 +377,7 @@ void main_loop()
 				int sz2=(1-(z2/dist*.5+.5))*screen->h;
 				if(sz1<visibleBottom)
 				{
-					rect(x,sz1,1,sz1-visibleBottom,s->floorColor);
+					rect(x,sz1,1,visibleBottom-sz1,s->floorColor);
 					visibleBottom=sz1;
 				}
 				if(sz2>visibleTop)
@@ -393,54 +396,7 @@ void main_loop()
 					v+=dv;
 				}
 			}
-#if 0
-			for(int i=0;i<walls.size();i++)
-			{
-				vec2f a=walls[i].a-camera;
-				vec2f b=walls[i].b-camera;
-				vec2f p;
-				float percent;
-				if((percent=get_line_intersection(a.x,a.y,b.x,b.y,0,0,cos(angle)*1000,sin(angle)*1000,&p.x,&p.y))==-1)
-					continue;
-				Uint32 color=walls[i].c;
-				float dist=LineToPointDistance2D(vec2f(0),c,p);
-				float frustumHeight=vFrustumSlope*dist;
-				float z1=walls[i].z1+cameraHeight;
-				float z2=walls[i].z2+cameraHeight;
-				int sz1=(z1/dist*.5+.5)*screen->h;
-				int sz2=(z2/dist*.5+.5)*screen->h;
-				//SDL_LockSurface(screen);
-				Uint32 c=SDL_MapRGB(screen->format,96,96,96);
-				if(sz1<visibleBottom)
-				{
-					rect(x,sz1,1,sz1-visibleBottom,SDL_MapRGB(screen->format,96,96,96));
-					for(int y=sz1;y<visibleBottom;y++)
-					{
-						/*float currentDist=(.5)/((float)y/screen->h-.5)+acos(vFOV/2)*cameraHeight;
-						float weight = (currentDist) / (dist);
-
-						float currentFloorX = weight * (p.x+camera.x) + (1 - weight) * camera.x;
-						float currentFloorY = weight * (p.y+camera.y) + (1 - weight) * camera.y;*/
-					//	putpixel(screen,x,y,c);
-					}
-					visibleBottom=sz1;
-				}
-				//SDL_UnlockSurface(screen);
-				if(sz2>visibleTop)
-				{
-					rect(x,visibleTop,1,sz2-visibleTop,SDL_MapRGB(screen->format,192,192,192));
-					visibleTop=sz2;
-				}
-				rect(x,visibleTop,1,visibleBottom-visibleTop,color);
-				/*int u=(float)(texture->w)*percent;
-				for(int y=visibleTop;y<visibleBottom;y++)
-				{
-					int v=(float)(y-sz2)/(float)(sz1-sz2)*texture->h;
-					putpixel(screen,x,y,getpixel(texture,u,v));
-				}*/
-				break;
-			}
-#endif
+			continue;
 		}
 	}
 		SDL_Flip(screen);
@@ -456,7 +412,6 @@ int main(int argc, char **argv)
 	screen=SDL_SetVideoMode(1024,768,32,SDL_HWSURFACE|SDL_DOUBLEBUF);
 	load("assets/level.txt");
 	printf("ready");
-	assert(texture=IMG_Load("assets/texture.bmp"));
 	printf("ready");
 	#ifdef EMSCRIPTEN
 	emscripten_set_main_loop(main_loop,60,1);
@@ -476,26 +431,36 @@ vec2f read2f(FILE *fp)
 	fscanf(fp,"%f,%f\n",&ret.x,&ret.y);
 	return ret;
 }
+unsigned char readHex(FILE *fp)
+{
+	char c=fgetc(fp);
+	if(c<='9')
+		return c-'0';
+	return c-'A'+10;
+}
 Uint32 readU32(FILE *fp)
 {
-	char r;
-	r=fgetc(fp);
-	r<<4;
-	r|=fgetc(fp);
-	char g=(fgetc(fp)<<4)|fgetc(fp);
-	char b=(fgetc(fp)<<4)|fgetc(fp);
+	unsigned char r=(readHex(fp)<<4)|readHex(fp);
+	unsigned char g=(readHex(fp)<<4)|readHex(fp);
+	unsigned char b=(readHex(fp)<<4)|readHex(fp);
 	return SDL_MapRGB(screen->format,r,g,b);
 }
 void makeEntity(vec2f p,string str);
 void load( const char *path )
 {
+#ifndef _MBCS
+	FILE *fp=fopen(path,"r");
+#else
 	FILE *fp;
 	fopen_s(&fp,path,"r");
+#endif
 	int nWall,nSector;
 	fscanf(fp,"%i\n",&nWall);
 	for(int i=0;i<nWall;i++)
 	{
 		Wall *wall=new Wall(read2f(fp),read2f(fp));
+		//wall->a*=.1;
+		//wall->b*=.1;
 		fscanf(fp,"%i,%i\n",&wall->si,&wall->pi);
 		int l;
 		fscanf(fp,"%i,",&l);
@@ -521,6 +486,7 @@ void load( const char *path )
 		fscanf(fp,"%f,%f\n",&s->bottom,&s->top);
 		fgetc(fp);
 		s->floorColor=readU32(fp);
+		fgetc(fp);
 		fgetc(fp);
 		s->ceilingColor=readU32(fp);
 		fgetc(fp);
