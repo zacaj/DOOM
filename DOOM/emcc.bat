@@ -1,0 +1,1 @@
+em++ main.cpp -o main.html --preload-file assets/ -g 
