@@ -13,6 +13,7 @@
 #endif
 #include <assert.h>
 #include <string>
+#include <map>
 using namespace std;
 SDL_Surface *screen;
 void rect(int x,int y,int w,int h,Uint32 c)
@@ -153,12 +154,44 @@ void putpixel(SDL_Surface *surface, int x, int y, Uint32 pixel)
     }
 }
 SDL_Surface *texture;
+class Texture
+{
+public:
+	Uint32 **pixels;
+	float w,h;
+	string name;
+	Texture( string path )
+	{
+		name=path;
+		SDL_Surface *s=IMG_Load(path.c_str());
+		SDL_LockSurface(s);
+		w=s->w;
+		h=s->h;
+		pixels=new Uint32*[s->w];
+		for(int i=0;i<s->w;i++)
+		{
+			pixels[i]=new Uint32[s->h];
+			for(int j=0;j<s->h;j++)
+				pixels[i][j]=getpixel(s,j,i);
+		}
+		SDL_UnlockSurface(s);
+		SDL_FreeSurface(s);
+	}
+};
+map<string,Texture*> textures;
+Texture *getTexture(string path)
+{
+	auto it=textures.find(path);
+	if(it==textures.end())
+		return new Texture(path);
+	return it->second;
+}
 class Sector;
 class Wall
 {
 public:
 	vec2f a,b;
-	SDL_Surface *texture;
+	Texture *texture;
 	Sector *sector;
 	Sector *portal;
 	int si,pi;
@@ -230,19 +263,22 @@ public:
 	virtual void update(){}
 	Entity()
 	{
-		s=getSector(p);
+		s=NULL;
 	}
 };
 vector<Entity*> entities;
+class Player;
+Player *player;
 class Player:public Entity
 {
 public:
 	float angle;
-	Player(vec2f _p)
+	Player(vec2f _p):Entity()
 	{
 		p=_p;
 		angle=0;
 		z=5;
+		player=this;
 	}
 };
 
@@ -255,12 +291,9 @@ void wrap( float &angle )
 }
 
 #define DEG2RAD 3.1415/180.f
-vec2f camera;
-float cameraAngle=0; 
 float hFOV=90*DEG2RAD;
 float vFOV=hFOV*3/4*DEG2RAD;
 float vFrustumSlope=tan(vFOV/2);
-float cameraHeight=0;
 	bool done=0;
 	Uint8 keystate[1500];
 void main_loop()
@@ -281,12 +314,12 @@ void main_loop()
 					break;
 				case SDLK_UP:
 				case SDLK_w:
-					camera.x+=cos(cameraAngle);
-					camera.y+=sin(cameraAngle);
+					player->p.x+=cos(player->angle);
+					player->p.y+=sin(player->angle);
 					break;
 				case SDLK_DOWN:
-					camera.x-=cos(cameraAngle);
-					camera.y-=sin(cameraAngle);
+					player->p.x-=cos(player->angle);
+					player->p.y-=sin(player->angle);
 					break;
 					default:
 					break;
@@ -301,28 +334,65 @@ void main_loop()
 	}
 	if(keystate[SDLK_LEFT])
 	{
-		cameraAngle+=.03;
+		player->angle+=.03;
 	}
 	if(keystate[SDLK_RIGHT])
 	{
-		cameraAngle-=.03;
+		player->angle-=.03;
 	}
 	if(keystate[SDLK_RSHIFT])
-		cameraHeight+=.1;
+		player->angle+=.1;
 	if(keystate[SDLK_RCTRL])
 	{
-		cameraHeight-=.1;
-		if(cameraHeight<0)
-			cameraHeight=0;
+		player->angle-=.1;
+		if(player->z<0)
+			player->z=0;
 	}
 	SDL_FillRect(screen,0,SDL_MapRGB(screen->format,255,255,0));
 	{
-		vec2f c(-sin(cameraAngle),cos(cameraAngle));
+		vec2f c(-sin(player->angle),cos(player->angle));
 		for(int x=0;x<screen->w;x++)
 		{
-			float angle=(float)(screen->w-x)/(float)screen->w*hFOV-hFOV/2+cameraAngle;
+			float angle=(float)(screen->w-x)/(float)screen->w*hFOV-hFOV/2+player->angle;
 			int visibleBottom=screen->h;
 			int visibleTop=0;
+			Sector *s=getSector(player->p);
+			int i;
+			for(i=0;i<s->walls.size();i++)
+			{
+				vec2f a=s->walls[i]->a-player->p;
+				vec2f b=s->walls[i]->b-player->p;
+				vec2f p;
+				float percent;
+				if((percent=get_line_intersection(a.x,a.y,b.x,b.y,0,0,cos(angle)*1000,sin(angle)*1000,&p.x,&p.y))==-1)
+					continue;
+				float dist=LineToPointDistance2D(vec2f(0),c,p);
+				float frustumHeight=vFrustumSlope*dist;
+				float z1=s->bottom-player->z;
+				float z2=s->top-player->z;
+				int sz1=(1-(z1/dist*.5+.5))*screen->h;
+				int sz2=(1-(z2/dist*.5+.5))*screen->h;
+				if(sz1<visibleBottom)
+				{
+					rect(x,sz1,1,sz1-visibleBottom,s->floorColor);
+					visibleBottom=sz1;
+				}
+				if(sz2>visibleTop)
+				{
+					rect(x,visibleTop,1,sz2-visibleTop,s->ceilingColor);
+					visibleTop=sz2;
+				}
+				int u=percent*s->walls[i]->texture->w;
+				Uint32 *c=s->walls[i]->texture->pixels[u];
+				float h=sz1-sz2;
+				float v=(visibleTop-sz2)/h;
+				float dv=s->walls[i]->texture->h/h;
+				for(int y=visibleTop;y<visibleBottom;y++)
+				{
+					putpixel(screen,x,y,c[(int)v]);
+					v+=dv;
+				}
+			}
 #if 0
 			for(int i=0;i<walls.size();i++)
 			{
@@ -433,7 +503,7 @@ void load( const char *path )
 		for(int j=0;j<l;j++)
 			str.push_back(fgetc(fp));
 		fgetc(fp);
-		wall->texture=IMG_Load(string("assets/"+str).c_str());
+		wall->texture=getTexture(string("assets/"+str));
 		walls.push_back(wall);
 	}
 	fscanf(fp,"%i\n",&nSector);
@@ -501,6 +571,6 @@ void makeEntity( vec2f p,string str )
 	while(str[i]!='\n' && i<str.size()) type.push_back(str[i++]);
 	if(type=="spawn")
 	{
-		camera=p;
+		entities.push_back(new Player(p));
 	}
 }
