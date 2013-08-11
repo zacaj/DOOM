@@ -1,1 +1,1 @@
-em++ main.cpp -o main.html --preload-file assets/ -g 
+em++ main.cpp -o main.html --preload-file assets/ --js-library library.js -std=c++11

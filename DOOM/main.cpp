@@ -1,13 +1,13 @@
 #include <stdio.h>
-#include <SDL.h>
 #include <vector>
 #include "..\..\enginepp\enginepp\vec2.h"
-#include <SDL_rotozoom.h>
 #ifndef _MBCS
 #include <emscripten.h>
-#include <SDL/SDL_image.h>
+//#include <SDL/SDL_image.h>
 #else
+#include <SDL.h>
 #define IMG_Load(s) SDL_DisplayFormat(SDL_LoadBMP(s))
+#define M_PI 3.1415962
 #ifndef GCC
 #define freopen freopen_s
 #define fscanf fscanf_s
@@ -16,18 +16,10 @@
 #endif
 #include <assert.h>
 #include <string>
-#include <map>
 using namespace std;
-SDL_Surface *screen;
-void rect(int x,int y,int w,int h,Uint32 c)
-{
-	SDL_Rect r;
-	r.x=x;
-	r.y=y;
-	r.w=w;
-	r.h=h;
-	SDL_FillRect(screen,&r,c);
-}
+#include <map>
+#include "js.h"
+#include <math.h>
 // Returns 1 if the lines intersect, otherwise 0. In addition, if the lines 
 // intersect the intersection point may be stored in the floats i_x and i_y.
 float get_line_intersection(float p0_x, float p0_y, float p1_x, float p1_y, 
@@ -83,102 +75,28 @@ float LineToPointDistance2D(vec2f pointA,vec2f pointB, vec2f pointC)
 	float dist = CrossProduct(pointA, pointB, pointC) / Distance(pointA, pointB);
 	return fabs(dist);
 } 
-Uint32 getpixel(SDL_Surface *surface, int x, int y)
-{
-	x&=surface->w-1;
-	y&=surface->h-1;
-    int bpp = surface->format->BytesPerPixel;
-    /* Here p is the address to the pixel we want to retrieve */
-    Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
-
-    switch(bpp) {
-    case 1:
-        return *p;
-
-    case 2:
-        return *(Uint16 *)p;
-
-    case 3:
-        if(SDL_BYTEORDER == SDL_BIG_ENDIAN)
-            return p[0] << 16 | p[1] << 8 | p[2];
-        else
-            return p[0] | p[1] << 8 | p[2] << 16;
-
-    case 4:
-        return *(Uint32 *)p;
-
-    default:
-        return 0;       /* shouldn't happen, but avoids warnings */
-    }
-}
-
-/*
- * Set the pixel at (x, y) to the given value
- * NOTE: The surface must be locked before calling this!
- */
-void putpixel(SDL_Surface *surface, int x, int y, Uint32 pixel)
-{
-	//if(x<0 || y<0 || x>surface->w || y>surface->h)
-	//	return;
-	SDL_Rect r;
-	r.x=x;
-	r.y=y;
-	r.w=r.h=1;
-	SDL_FillRect(surface,&r,pixel);
-	return;
-    int bpp = surface->format->BytesPerPixel;
-    /* Here p is the address to the pixel we want to set */
-    Uint8 *p = (Uint8 *)surface->pixels + y * surface->pitch + x * bpp;
-
-    switch(bpp) {
-    case 1:
-        *p = pixel;
-        break;
-
-    case 2:
-        *(Uint16 *)p = pixel;
-        break;
-
-    case 3:
-        if(SDL_BYTEORDER == SDL_BIG_ENDIAN) {
-            p[0] = (pixel >> 16) & 0xff;
-            p[1] = (pixel >> 8) & 0xff;
-            p[2] = pixel & 0xff;
-        } else {
-            p[0] = pixel & 0xff;
-            p[1] = (pixel >> 8) & 0xff;
-            p[2] = (pixel >> 16) & 0xff;
-        }
-        break;
-
-    case 4:
-        *(Uint32 *)p = pixel;
-        break;
-    }
-}
-SDL_Surface *texture;
 class Texture
 {
 public:
-	Uint32 **pixels;
+	Color **pixels;
 	float w,h;
 	string name;
 	Texture( string path )
 	{
 		name=path;
-		SDL_Surface *s=IMG_Load(path.c_str());
+		/*SDL_Surface *s=IMG_Load(path.c_str());
 		SDL_LockSurface(s);
 		w=s->w;
 		h=s->h;
-		pixels=new Uint32*[s->w];
+		pixels=new Color*[s->w];
 		for(int i=0;i<s->w;i++)
 		{
-			pixels[i]=new Uint32[s->h];
+			pixels[i]=new Color[s->h];
 			for(int j=0;j<s->h;j++)
 				pixels[i][j]=getpixel(s,j,i);
 		}
 		SDL_UnlockSurface(s);
-		SDL_FreeSurface(s);
+		SDL_FreeSurface(s);*/
 	}
 };
 map<string,Texture*> textures;
@@ -236,7 +154,8 @@ class Sector
 public:
 	vec2f p;
 	float bottom,top;
-	Uint32 floorColor,ceilingColor;
+	Color floorColor;
+	Color ceilingColor;
 	vector<Wall*> walls;
 	vector<Triangle> tris;
 	bool pointIsIn(vec2f p)
@@ -298,10 +217,10 @@ float hFOV=90*DEG2RAD;
 float vFOV=hFOV*3/4*DEG2RAD;
 float vFrustumSlope=tan(vFOV/2);
 	bool done=0;
-	Uint8 keystate[1500];
+unsigned char keystate[1500];
 void main_loop()
 {
-	SDL_Event e;
+	/*SDL_Event e;
 	while(SDL_PollEvent(&e))
 	{
 		switch(e.type)
@@ -350,14 +269,16 @@ void main_loop()
 		player->angle-=.1;
 		if(player->z<0)
 			player->z=0;
-	}
-	SDL_FillRect(screen,0,SDL_MapRGB(screen->format,255,255,0));
+			}*/
+player->angle-=.03;
+	bindColor(0,0,0);
+	rect(0,0,1024,768);
 	{
 		vec2f c(-sin(player->angle),cos(player->angle));
-		for(int x=0;x<screen->w;x++)
+		for(int x=0;x<getWidth();x++)
 		{
-			float angle=(float)(screen->w-x)/(float)screen->w*hFOV-hFOV/2+player->angle;
-			int visibleBottom=screen->h;
+			float angle=(float)(getWidth()-x)/(float)getWidth()*hFOV-hFOV/2+player->angle;
+			int visibleBottom=getHeight();
 			int visibleTop=0;
 			Sector *s=getSector(player->p);
 			int i;
@@ -373,33 +294,36 @@ void main_loop()
 				float frustumHeight=vFrustumSlope*dist;
 				float z1=s->bottom-player->z;
 				float z2=s->top-player->z;
-				int sz1=(1-(z1/dist*.5+.5))*screen->h;
-				int sz2=(1-(z2/dist*.5+.5))*screen->h;
+				int sz1=(1-(z1/dist*.5+.5))*getHeight();
+				int sz2=(1-(z2/dist*.5+.5))*getHeight();
 				if(sz1<visibleBottom)
 				{
-					rect(x,sz1,1,visibleBottom-sz1,s->floorColor);
+					bindColor(s->floorColor.r,s->floorColor.g,s->floorColor.b);
+					rect(x,sz1,1,visibleBottom-sz1);
 					visibleBottom=sz1;
 				}
 				if(sz2>visibleTop)
 				{
-					rect(x,visibleTop,1,sz2-visibleTop,s->ceilingColor);
+					bindColor(s->ceilingColor.r,s->ceilingColor.g,s->ceilingColor.b);
+					rect(x,visibleTop,1,sz2-visibleTop);
 					visibleTop=sz2;
 				}
 				int u=percent*s->walls[i]->texture->w;
-				Uint32 *c=s->walls[i]->texture->pixels[u];
+				//Color *c=s->walls[i]->texture->pixels[u];
+				bindColor(255,255,255);
 				float h=sz1-sz2;
 				float v=(visibleTop-sz2)/h;
 				float dv=s->walls[i]->texture->h/h;
 				for(int y=visibleTop;y<visibleBottom;y++)
 				{
-					putpixel(screen,x,y,c[(int)v]);
+					putpixel(x,y/*c[(int)v]*/);
 					v+=dv;
 				}
 			}
 			continue;
 		}
 	}
-		SDL_Flip(screen);
+	flipGFX();
 }
 void load(const char *path);
 int main(int argc, char **argv)
@@ -407,9 +331,7 @@ int main(int argc, char **argv)
 	for(int i=0;i<1500;i++)
 		keystate[i]=0;
 	printf("ready");
-	SDL_Init(SDL_INIT_VIDEO);
-	printf("ready");
-	screen=SDL_SetVideoMode(1024,768,32,SDL_HWSURFACE|SDL_DOUBLEBUF);
+	initGFX();
 	load("assets/level.txt");
 	printf("ready");
 	printf("ready");
@@ -421,7 +343,6 @@ int main(int argc, char **argv)
 		main_loop();
 	}
 	#endif
-	SDL_Quit();
 	return 0;
 }
 
@@ -438,12 +359,12 @@ unsigned char readHex(FILE *fp)
 		return c-'0';
 	return c-'A'+10;
 }
-Uint32 readU32(FILE *fp)
+Color readU32(FILE *fp)
 {
 	unsigned char r=(readHex(fp)<<4)|readHex(fp);
 	unsigned char g=(readHex(fp)<<4)|readHex(fp);
 	unsigned char b=(readHex(fp)<<4)|readHex(fp);
-	return SDL_MapRGB(screen->format,r,g,b);
+	return Color(r,g,b);
 }
 void makeEntity(vec2f p,string str);
 void load( const char *path )
